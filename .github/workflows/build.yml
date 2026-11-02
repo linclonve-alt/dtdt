@@ -1,0 +1,46 @@
+name: Build installer
+on:
+  workflow_dispatch:      # adds a "Run workflow" button on GitHub
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build app
+        run: |
+          pip install fastapi uvicorn requests pyinstaller pywebview tzdata ccxt
+          EXTRA=""
+          if [ -f server.py ]; then
+            EXTRA="--hidden-import server"
+            if pip install paradex_py && python -c "import paradex_py"; then
+              for pkg in paradex_py starknet_py crypto_cpp_py poseidon_py; do
+                if python -c "import $pkg" 2>/dev/null; then EXTRA="$EXTRA --collect-all $pkg"; fi
+              done
+            else
+              echo "::warning::Paradex library could not be installed, so this build is OANDA only."
+            fi
+          else
+            echo "::warning::No server.py found, so this build is OANDA only."
+          fi
+          pyinstaller --noconfirm --onedir --noconsole --name DayTradeRiskManager \
+            --add-data "static;static" \
+            --hidden-import server_oanda --hidden-import server_ccxt --hidden-import cexlib \
+            --hidden-import daylock --hidden-import webview \
+            --collect-submodules uvicorn --collect-submodules ccxt --collect-data tzdata --collect-data certifi \
+            $EXTRA trader_app.py
+      - name: Build installer
+        run: |
+          choco install innosetup -y --no-progress
+          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" installer.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DayTradeRiskManager-Setup
+          path: installer_out/DayTradeRiskManager-Setup.exe
