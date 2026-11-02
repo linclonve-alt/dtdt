@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Risk Mgr">
+<meta name="referrer" content="no-referrer">
+<title>Day Trade Risk Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#000; --fg:#fff; --dim:#8a8a8a; --line:#3a3a3a;
+  --mono:"IBM Plex Mono","Courier New",ui-monospace,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;border-radius:0}
+html,body{height:100%;margin:0}
+body{
+  background:var(--bg);color:var(--fg);
+  font:14px/1.4 var(--mono);font-variant-numeric:tabular-nums;
+  display:flex;flex-direction:column;height:100dvh;overflow:hidden;
+  padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0);
+}
+/* CRT scanlines */
+body::after{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:50;
+  background:repeating-linear-gradient(to bottom,rgba(255,255,255,.035) 0,rgba(255,255,255,.035) 1px,transparent 1px,transparent 3px);
+}
+header{display:flex;justify-content:space-between;align-items:center;padding:10px 14px 8px;border-bottom:2px solid var(--fg)}
+#px{font-size:26px;font-weight:700;letter-spacing:-1px}
+.sub{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:1px}
+#pair{display:none;background:var(--bg);color:var(--fg);border:2px solid var(--fg);font:700 12px var(--mono);padding:3px 4px;margin-bottom:3px;border-radius:0}
+#pair:disabled{opacity:.5}
+.right{display:flex;align-items:center;gap:10px}
+.tf{display:flex;border:2px solid var(--fg)}
+.tf button{border:0;background:var(--bg);color:var(--fg);font:600 12px var(--mono);padding:6px 7px}
+.tf button.on{background:var(--fg);color:var(--bg)}
+#timer{font-size:20px;font-weight:600;min-width:58px;text-align:right}
+#timer small{display:block;color:var(--dim);font-size:10px;font-weight:400;text-transform:uppercase;letter-spacing:1px}
+
+#wrap{flex:1;position:relative;min-height:0}
+#chart{position:absolute;inset:0}
+#sl{position:absolute;left:0;right:0;top:0;height:34px;margin-top:-17px;touch-action:none;cursor:ns-resize;display:none;z-index:5}
+#sl .ln{position:absolute;left:0;right:0;top:16px;border-top:2px dashed var(--fg)}
+#sl .pill{
+  position:absolute;left:10px;top:3px;background:var(--fg);color:var(--bg);
+  font-weight:700;font-size:12px;padding:3px 9px;white-space:nowrap;
+  text-transform:uppercase;letter-spacing:.5px;box-shadow:3px 3px 0 var(--dim)
+}
+#sl.locked .ln{border-top-style:solid}
+
+#info{padding:8px 14px;color:var(--dim);font-size:12px;min-height:38px;border-top:2px solid var(--fg)}
+#info b{color:var(--fg);font-weight:600}
+#info .bad{color:var(--bg);background:var(--fg);padding:1px 5px;font-weight:600}
+#btns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:4px 12px 12px}
+#btns button{
+  border:2px solid var(--fg);height:58px;font:700 16px var(--mono);letter-spacing:1px;text-transform:uppercase;
+  transition:opacity .15s,transform .08s;box-shadow:3px 3px 0 var(--dim)
+}
+#btns button:active:not(:disabled){transform:translate(2px,2px);box-shadow:1px 1px 0 var(--dim)}
+#btns button:disabled{opacity:.25}
+#long{background:var(--fg);color:var(--bg)}
+#short{background:var(--bg);color:var(--fg)}
+#stop{background:var(--bg);color:var(--fg);border-style:dashed}
+
+#toast{
+  position:fixed;left:14px;right:14px;top:calc(env(safe-area-inset-top,0) + 70px);z-index:60;
+  background:var(--bg);border:2px solid var(--fg);padding:12px 14px;
+  font-size:13px;display:none;box-shadow:5px 5px 0 var(--dim);word-break:break-all;max-height:60vh;overflow:auto
+}
+#toast.err::before{content:"! ERROR  ";font-weight:700}
+#toast.ok::before{content:"> ";font-weight:700}
+
+/* Daily lock screen */
+#lock{
+  position:fixed;inset:0;z-index:40;background:#000;display:none;
+  align-items:center;justify-content:center;text-align:center;padding:24px
+}
+#lock .box{border:3px double var(--fg);padding:28px 22px;max-width:360px;width:100%}
+#lock .big{font-size:38px;font-weight:700;letter-spacing:4px;margin-bottom:10px}
+#lock .t{font-size:30px;font-weight:700;margin:14px 0 4px}
+#lock .cur::after{content:"_";animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+</style>
+</head>
+<body>
+<header>
+  <div><div id="px">...</div><select id="pair"></select><div class="sub" id="sub">Loading price...</div></div>
+  <div class="right">
+    <div class="tf"><button data-tf="1m" class="on">1m</button><button data-tf="5m">5m</button><button data-tf="15m">15m</button><button data-tf="30m">30m</button><button data-tf="1h">1h</button></div>
+    <div id="timer">0:00<small>to close</small></div>
+  </div>
+</header>
+
+<div id="wrap">
+  <div id="chart"></div>
+  <div id="sl"><div class="ln"></div><div class="pill" id="slTxt"></div></div>
+</div>
+
+<div id="info">Loading chart...</div>
+<div id="btns">
+  <button id="long" disabled>&#9650; Long</button>
+  <button id="short" disabled>&#9660; Short</button>
+  <button id="stop" disabled>Stop</button>
+</div>
+<div id="toast"></div>
+
+<div id="lock">
+  <div class="box">
+    <div class="big">LOCKED</div>
+    <div>Today's trade is done.</div>
+    <div class="t cur" id="lockT">--:--:--</div>
+    <div class="sub">until unlock</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const fmt = (n, d = cfg.pdec) => Number(n).toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
+let TF = '1m', SECS = 60, INST = '';
+const q = () => INST ? `&inst=${INST}` : '';
+const TFS = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600};
+const DEF = {pdec: 1, qdec: 5, unit: 'BTC', step: 0.00001, min_dist: 0.1, conv: 1, max_qty: null};
+
+let last = null, prevClose = null;
+let slPrice = null, pos = null, cfg = {...DEF, risk_usd: 1, max_notional_usd: 5000};
+let entryLine = null, busy = false, pollT = null;
+let locked = false, unlockAt = null;
+const vn = () => (cfg.venue || 'the exchange').replace(/ (TESTNET|DEMO)$/, '');
+const _t = new URLSearchParams(location.search).get('t');
+if (_t) { localStorage.setItem('tok', _t); history.replaceState(null, '', location.pathname); }
+let token = localStorage.getItem('tok') || '';
+
+/* ---------- API ---------- */
+async function api(path, body) {
+  if (!token) { token = prompt('Access token') || ''; localStorage.setItem('tok', token); }
+  const r = await fetch(path, {
+    method: body ? 'POST' : 'GET',
+    headers: {'X-Token': token, 'Content-Type': 'application/json'},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (r.status === 401) { token = ''; localStorage.removeItem('tok'); throw new Error('Wrong token'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    let d = j.detail;
+    if (Array.isArray(d)) d = d.map(x => `${(x.loc || []).join('.')}: ${x.msg}`).join('; ');
+    else if (d && typeof d === 'object') d = JSON.stringify(d);
+    throw new Error(d || r.statusText);
+  }
+  return j;
+}
+function toast(msg, kind, ms) {
+  const t = $('toast'); t.textContent = msg; t.className = kind || ''; t.style.display = 'block';
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = 'none', ms || (kind === 'err' ? 6000 : 3000));
+}
+
+/* ---------- Chart ---------- */
+const MONO = 'IBM Plex Mono, Courier New, monospace';
+const chart = LightweightCharts.createChart($('chart'), {
+  autoSize: true,
+  layout: {background: {color: '#000000'}, textColor: '#bdbdbd', fontFamily: MONO},
+  grid: {vertLines: {color: '#1c1c1c', style: 1}, horzLines: {color: '#1c1c1c', style: 1}},
+  rightPriceScale: {borderColor: '#ffffff'},
+  timeScale: {borderColor: '#ffffff', timeVisible: true, secondsVisible: false, rightOffset: 4},
+  crosshair: {mode: 0}
+});
+// Up candle = hollow, down candle = solid white
+const series = chart.addCandlestickSeries({
+  upColor: '#000000', downColor: '#ffffff',
+  borderVisible: true, borderUpColor: '#ffffff', borderDownColor: '#ffffff',
+  wickUpColor: '#ffffff', wickDownColor: '#ffffff'
+});
+
+async function load() {
+  const bars = await api(`/api/klines?tf=${TF}&n=500${q()}`);
+  series.setData(bars);
+  last = bars[bars.length - 1];
+  if (slPrice == null) slPrice = last.close * 0.998;
+}
+// Keep the newest candles in sync with Paradex
+async function sync() {
+  if (!last) return;
+  try {
+    const bars = await api(`/api/klines?tf=${TF}&n=3${q()}`);
+    bars.forEach(b => series.update(b));
+    last = bars[bars.length - 1];
+  } catch (e) {}
+}
+// Live price: Paradex mark price, once a second, moves the current candle
+async function tick() {
+  if (!last) return;
+  try {
+    const p = (await api('/api/price?x=1' + q())).mark;
+    prevClose = last.close;
+    const bucket = Math.floor(Date.now() / 1000 / SECS) * SECS;
+    if (bucket > last.time) last = {time: bucket, open: p, high: p, low: p, close: p};
+    else last = {...last, high: Math.max(last.high, p), low: Math.min(last.low, p), close: p};
+    series.update(last);
+  } catch (e) {}
+}
+
+document.querySelectorAll('.tf button').forEach(b => b.onclick = () => {
+  if (b.dataset.tf === TF) return;
+  TF = b.dataset.tf; SECS = TFS[TF];
+  document.querySelectorAll('.tf button').forEach(x => x.classList.toggle('on', x === b));
+  series.setData([]); last = null;
+  load().catch(e => toast(e.message, 'err'));
+});
+
+function setPair(i) {
+  INST = i; slPrice = null; series.setData([]); last = null;
+  load().then(poll).catch(e => toast(e.message, 'err'));
+}
+$('pair').onchange = e => setPair(e.target.value);
+
+/* ---------- Draggable stop line ---------- */
+const sl = $('sl'), wrap = $('wrap');
+let drag = false;
+const paneH = () => wrap.clientHeight - 28;   // keep above the time axis
+
+sl.addEventListener('pointerdown', e => { if (busy) return; drag = true; sl.setPointerCapture(e.pointerId); });
+sl.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const y = Math.min(Math.max(e.clientY - wrap.getBoundingClientRect().top, 0), paneH());
+  const p = series.coordinateToPrice(y);
+  if (p != null) slPrice = p;
+});
+sl.addEventListener('pointercancel', () => { drag = false; poll(); });
+sl.addEventListener('pointerup', () => {
+  if (!drag) return;
+  drag = false;
+  if (pos) moveStop();   // in a position: releasing the line trails the stop on the exchange
+});
+
+function frame() {
+  if (slPrice != null) {
+    const y = series.priceToCoordinate(slPrice);
+    if (y == null) sl.style.display = 'none';
+    else {
+      sl.style.display = 'block';
+      sl.style.transform = `translateY(${Math.min(Math.max(y, 17), paneH())}px)`;
+    }
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------- Math, timer, buttons ---------- */
+function calc() {
+  if (!last || slPrice == null) return null;
+  const dist = Math.abs(last.close - slPrice);
+  if (dist < cfg.min_dist) return null;
+  const qty = Math.floor(cfg.risk_usd / (dist * cfg.conv) / cfg.step) * cfg.step;
+  return {dist, qty, notional: qty * last.close, long: slPrice < last.close};
+}
+
+function refresh() {
+  // Lock screen
+  $('lock').style.display = locked ? 'flex' : 'none';
+  if (locked && unlockAt) {
+    const left = Math.max(0, Math.floor(unlockAt - Date.now() / 1000));
+    const h = Math.floor(left / 3600), m = Math.floor(left % 3600 / 60), s = left % 60;
+    $('lockT').textContent = [h, m, s].map(n => String(n).padStart(2, '0')).join(':');
+    if (left === 0) poll();   // the day rolled over: ask the server again
+  }
+
+  if (last) {
+    const arrow = prevClose == null ? '' : (last.close >= prevClose ? '\u25B2 ' : '\u25BC ');
+    $('px').textContent = arrow + fmt(last.close, Math.max(2, cfg.pdec));
+    const left = Math.max(0, last.time + SECS - Date.now() / 1000);
+    $('timer').firstChild.textContent = `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
+  }
+  const c = calc();
+  $('slTxt').textContent = slPrice == null ? '' :
+    (pos ? `Stop ${fmt(slPrice)}` : `Stop ${fmt(slPrice)}  (${fmt(Math.abs((last?.close ?? slPrice) - slPrice))})`);
+  sl.classList.toggle('locked', !!pos);
+  $('pair').disabled = busy || !!pos || locked;
+
+  let canLong = false, canShort = false, tooTight = false;
+  if (pos) {
+    $('info').innerHTML = `<b>${pos.side === 'LONG' ? 'Long' : 'Short'} ${pos.size}</b> ${cfg.unit} from <b>${fmt(pos.entry)}</b>. ` +
+      `Drag the stop line to trail it.`;
+  } else if (c) {
+    tooTight = cfg.max_qty ? c.qty > cfg.max_qty : c.notional > cfg.max_notional_usd;
+    canLong = c.long && !tooTight; canShort = !c.long && !tooTight;
+    $('info').innerHTML = tooTight
+      ? `<span class="bad">Line too close: size exceeds the cap.</span>`
+      : `Risk <b>${fmt(cfg.risk_usd, 2)} USD</b> (${cfg.risk_pct ?? ''}% of account), size <b>${c.qty.toFixed(cfg.qdec)}</b> ${cfg.unit}${cfg.max_qty ? '' : ` (${fmt(c.notional, 0)} USD)`}. The stop goes the same distance from your ${vn()} fill.`;
+  }
+  if (locked) { canLong = false; canShort = false; }
+  $('long').disabled = busy || !canLong;
+  $('short').disabled = busy || !canShort;
+  $('stop').disabled = busy || !pos;
+}
+setInterval(refresh, 250);
+
+/* ---------- Position sync ---------- */
+async function poll() {
+  try {
+    const s = await api('/api/status?x=1' + q());
+    cfg = {...DEF, ...s}; pos = s.position;
+    if (poll.p !== cfg.pdec) { poll.p = cfg.pdec; series.applyOptions({priceFormat: {type: 'price', precision: cfg.pdec, minMove: Math.pow(10, -cfg.pdec)}}); }
+    locked = !!s.locked; unlockAt = s.unlock_at || null;
+    $('sub').textContent = (s.venue || 'Paradex') + ' // v15';
+    const pr = $('pair');
+    if (s.pairs && s.pairs.length) {
+      if (pr.options.length !== s.pairs.length) pr.innerHTML = s.pairs.map(x => `<option value="${x}">${x.replace('_', '/')}</option>`).join('');
+      pr.style.display = 'block';
+      const want = pos ? pos.inst : (s.pairs.includes(INST) ? INST : s.inst);
+      pr.value = want;
+      if (want !== INST) { setPair(want); return; }
+    }
+    if (pos && pos.stop && !drag && !busy) slPrice = pos.stop;
+    if (entryLine) { series.removePriceLine(entryLine); entryLine = null; }
+    if (pos && pos.entry)
+      entryLine = series.createPriceLine({price: pos.entry, color: '#ffffff', lineWidth: 1, lineStyle: 3, title: 'Entry'});
+  } catch (e) {
+    if (e.message === 'Wrong token') { clearInterval(pollT); toast('Wrong token. Reload to enter it again.', 'err'); }
+  }
+}
+
+/* ---------- Actions ---------- */
+async function act(fn, okMsg) {
+  busy = true; refresh();
+  try { const r = await fn(); toast(okMsg(r), 'ok'); }
+  catch (e) { toast(e.message, 'err'); }
+  busy = false; await poll(); refresh();
+}
+function tradeBody(side) {
+  if (!last || !Number.isFinite(slPrice) || !Number.isFinite(last.close))
+    throw new Error('Chart price or stop line is not ready. Wait a second and try again.');
+  if (side === 'long' && slPrice >= last.close) throw new Error('For a long, drag the line below the price.');
+  if (side === 'short' && slPrice <= last.close) throw new Error('For a short, drag the line above the price.');
+  // Only the distance goes to the server. Entry, size and stop all use Paradex prices there.
+  return {side, dist: Math.abs(last.close - slPrice), inst: INST || undefined};
+}
+$('long').onclick = () => act(() => api('/api/trade', tradeBody('long')),
+  r => `Long ${r.qty} ${cfg.unit} at ${fmt(r.entry)}. Stop at ${fmt(r.stop)} on ${vn()}.`);
+$('short').onclick = () => act(() => api('/api/trade', tradeBody('short')),
+  r => `Short ${r.qty} ${cfg.unit} at ${fmt(r.entry)}. Stop at ${fmt(r.stop)} on ${vn()}.`);
+function moveStop() {
+  if (!last || !Number.isFinite(slPrice)) return;
+  const isLong = pos.side === 'LONG';
+  const back = () => { if (pos.stop != null) slPrice = pos.stop; };
+  if (isLong ? slPrice >= last.close : slPrice <= last.close) {
+    toast(isLong ? 'For a long, drag the stop below the price.' : 'For a short, drag the stop above the price.', 'err');
+    back(); return;
+  }
+  if (pos.stop != null && Math.abs(slPrice - pos.stop) < cfg.min_dist * 2) { back(); return; }
+  // The chart is Paradex's own mark price, so the line's price goes to the server as it is.
+  act(() => api('/api/move_stop', {stop_price: slPrice}),
+    r => r.warning ? r.warning : `Stop moved to ${fmt(r.stop)} on ${vn()}.`);
+}
+// Debug: tap the info line to see exactly what Paradex sent for the position
+$('info').onclick = () => { if (cfg.raw) toast(JSON.stringify(cfg.raw), 'ok', 30000); };
+$('stop').onclick = () => act(() => api('/api/stop', {}),
+  r => r.closed ? 'Position closed and stop cancelled.' : 'No open position.');
+
+load().catch(e => toast(e.message, 'err'));
+setInterval(tick, 1000); setInterval(sync, 10000);
+poll(); pollT = setInterval(poll, 3000);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+</script>
+</body>
+</html>
