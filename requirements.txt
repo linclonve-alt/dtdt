@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+requests
+tzdata
+ccxt
+paradex_py

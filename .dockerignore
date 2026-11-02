@@ -1,0 +1,10 @@
+.env
+.git
+.github
+__pycache__/
+*.pyc
+dist/
+build/
+installer_out/
+installer.iss
+build.bat

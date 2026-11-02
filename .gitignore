@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+lock.json
+dist/
+build/
+installer_out/

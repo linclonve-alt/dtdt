@@ -1,0 +1,26 @@
+# Runs the trader plus Caddy, which gets a free HTTPS certificate for your domain automatically.
+# Only Caddy is reachable from the internet (ports 80/443); the trader itself has no public port.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TRUST_PROXY: "1"
+    volumes:
+      - appdata:/data        # holds the one-trade-a-day lock: do NOT delete this volume
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [app]
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+volumes:
+  appdata:
+  caddy_data:
+  caddy_config:
